@@ -23,7 +23,7 @@ def random_gamma(image):
     """Adjust images' intensity"""
 
     # `inputs` has shape [height, width] with value in [0, 1].
-    gamma = np.random.uniform(low=0.9, high=1.1)
+    gamma = np.random.uniform(low=0.8, high=1.2)
     return adjust_gamma(image, gamma)
 
 
