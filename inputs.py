@@ -46,15 +46,15 @@ def random_affine(image, label,
     return [warp(item, tform, mode='reflect', preserve_range=True) for item in [image, label]]
 
 
-class DatasetFromFolder(data.Dataset):
+class RectusFemorisDataset(data.Dataset):
     def __init__(self, mode='train', image_size=(256, 256)):
         """Assume dataset is in directory '.data/rf_SX_image/' and '.data/rf_SX_label',
         X ∈ {base, 0, 1, 2, 13, 15, 16, 18, 19, 24}
         """
-        super(DatasetFromFolder, self).__init__()
+        super(RectusFemorisDataset, self).__init__()
         self.image_size = image_size
 
-        self.data_path = glob.glob('data/*_label/*')  # 270 training images
+        self.data_path = glob.glob('data/*_label/*.bmp')  # 270 training images
         np.random.shuffle(self.data_path)
 
         split = int(len(self.data_path) * 0.1)
@@ -86,17 +86,53 @@ class DatasetFromFolder(data.Dataset):
         return len(self.image_path)
 
 
-def _test_data_loader():
-    training_data_loader = data.DataLoader(dataset=DatasetFromFolder(), num_workers=4, batch_size=6, shuffle=True)
-    im, lb = next(iter(training_data_loader))
-    print(im.size(), 'image')
-    print(lb.size(), 'label')
+class DeployRectusFemoris(data.Dataset):
+    def __init__(self, mode='total', image_size=(256, 256)):
+        """
+        Arguments:
+            image_size: same with training input size
+            mode:
+                total: 2540 images
+                train: 270  images
+                infer: 2270 images
+        """
+        self.mode = mode
+        self.image_size = image_size
 
+        total_image = glob.glob('data/*_image/*.bmp')
+        train_image = [p.replace('label', 'image') for p in glob.glob('data/*_label/*.bmp')]  #
+        infer_image = list(set(total_image) - set(train_image))
+        self.images_path = eval('{}_image'.format(mode))
+
+    def __getitem__(self, idx):
+        path = self.images_path[idx]
+        image = imread(path, mode='F')
+        image = resize(image, self.image_size, preserve_range=True)
+        image = _normalize(image)
+        return torch.from_numpy(np.expand_dims(image, 0)), path
+
+    def __len__(self):
+        return len(self.images_path)
+
+
+def _test_data_loader(dataset=RectusFemorisDataset()):
     vis = visdom.Visdom()
-    vis.images(im.numpy(), opts=dict(title='Random selected image', caption='Shape: {}'.format(im.size())))
-    vis.images(lb.numpy(), opts=dict(title='Random selected label', caption='Shape: {}'.format(lb.size())))
+
+    training_data_loader = data.DataLoader(dataset=dataset, num_workers=4, batch_size=4, shuffle=True)
+    im, lb = next(iter(training_data_loader))
+    if isinstance(lb, torch.FloatTensor):
+        print(im.size(), 'image')
+        print(lb.size(), 'label')
+        vis.images(im.numpy(), opts=dict(title='Random selected image', caption='Shape: {}'.format(im.size())))
+        vis.images(lb.numpy(), opts=dict(title='Random selected label', caption='Shape: {}'.format(lb.size())))
+    else:
+        print(im.size(), 'image')
+        print(lb, 'image path')
+        vis.images(im.numpy(), opts=dict(title='Random selected image', caption='Shape: {}'.format(im.size())))
 
 
 if __name__ == '__main__':
     import visdom
+
+    # _test_data_loader(dataset=DeployRectusFemoris(mode='infer'))
     _test_data_loader()

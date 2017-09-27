@@ -1,5 +1,7 @@
 import os
+import time
 import argparse
+import datetime
 import visdom
 import numpy as np
 
@@ -9,10 +11,10 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
 from unet import UNetAtrous, UNetVanilla
-from inputs import DatasetFromFolder
+from inputs import RectusFemorisDataset
 
 from bluntools.easy_visdom import EasyVisdom
-from bluntools.layers import weights_init, active_flatten, avg_class_weight, get_statictis, pre_visdom, \
+from bluntools.layers import weights_init, active_flatten, avg_class_weight, get_statistic, pre_visdom, \
     DiceLoss, NLLLoss, multi_size
 from bluntools.checkpoints import load_checkpoints, save_checkpoints
 from bluntools.lr_scheduler import auto_lr_scheduler, step_lr_scheduler
@@ -39,6 +41,7 @@ class Configuration:
         self.seed = 714
         self.threads = 4
         self.resume_step = -1
+        self.show_interval = 10
         self.from_scratch = from_scratch
         self.prefix = prefix
         self.result_dir = None
@@ -87,10 +90,10 @@ def main():
 
     # Dataset loader
     # --------------------------------------------------------------------------------------------------------
-    training_data_loader = DataLoader(dataset=DatasetFromFolder(mode='train'),
+    training_data_loader = DataLoader(dataset=RectusFemorisDataset(mode='train'),
                                       num_workers=conf.threads, batch_size=conf.batch_size, shuffle=True)
 
-    test_data_loader = DataLoader(dataset=DatasetFromFolder(mode='test'),
+    test_data_loader = DataLoader(dataset=RectusFemorisDataset(mode='test'),
                                   num_workers=conf.threads, batch_size=conf.batch_size, shuffle=True)
 
     # Weights
@@ -139,7 +142,7 @@ def main():
             loss = NLLLoss(class_weight)(outputs, targets) + DiceLoss()(preds, trues)
 
             pred, true = preds[0], trues[0]  # original size prediction
-            accuracy, overlap = get_statictis(pred, true)
+            accuracy, overlap = get_statistic(pred, true)
 
             optimizer.zero_grad()
 
@@ -173,7 +176,7 @@ def main():
             loss = NLLLoss(class_weight)(outputs, targets) + DiceLoss()(preds, trues)
 
             pred, true = preds[0], trues[0]  # original size prediction
-            accuracy, overlap = get_statictis(pred, true)
+            accuracy, overlap = get_statistic(pred, true)
 
             epoch_acc += accuracy
             epoch_loss += loss.data[0]
@@ -188,15 +191,17 @@ def main():
         return (avg_loss, avg_acc, avg_dice,
                 *pre_visdom(image, label, pred))
 
-    best_result = 0
+    best_result = 0.0
+    prog_start_time = datetime.datetime.now()
+    elapsed_time, total_time = 0.0, 0.0
     for i in range(start_i, total_i + 1):
-        # MultiStepLR monitors: epoch
-        # optimizer = step_lr_scheduler(optimizer, i, milestones=[800, 1000, 1500],
-        #                               init_lr=conf.learning_rate, instant=(start_i == i))
+        start_time = time.process_time()
 
-        # `results` contains [loss, acc, dice]
-        *train_results, train_image, train_label, train_pred = train()
+        *train_results, train_image, train_label, train_pred = train()  # `results`: [loss, acc, dice]
         *val_results, val_image, val_label, val_pred = validate()
+
+        elapsed_time += time.process_time() - start_time
+        total_time += time.process_time() - start_time
 
         # ReduceLROnPlateau monitors: validate loss
         scheduler.step(val_results[0])
@@ -212,13 +217,22 @@ def main():
                       val_images=[val_image, val_label, val_pred])
 
         # Save checkpoints
-        if i % 5 == 0:
+        if i % conf.show_interval == 0:
             temp_result = val_results[-1] + train_results[-1]
             is_best = temp_result > best_result
             best_result = max(temp_result, best_result)
 
             save_checkpoints(model, conf.checkpoint_dir, i, conf.prefix, is_best=is_best)
             np.save(os.path.join(conf.result_dir, 'results_dict.npy'), ev.results_dict)
+
+            avg_time = elapsed_time / conf.show_interval
+            est_time = divmod((total_i - i) * avg_time, 60)
+            sum_time = divmod(total_time, 60)
+            print('Average consumed time: {:.3f} s/epoch\n'  
+                  'Estimated remaining time: {:.0f}m {:.0f}s   Total time: {:.0f}m {:.0f}s\n'  
+                  '[start from: {} -- current time: {}]'
+                  .format(avg_time, *est_time, *sum_time, prog_start_time, datetime.datetime.now()))
+            elapsed_time = 0.0
 
 
 if __name__ == '__main__':
