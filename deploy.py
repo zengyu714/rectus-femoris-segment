@@ -1,3 +1,4 @@
+import os
 import glob
 import visdom
 import numpy as np
@@ -6,7 +7,7 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
 from tqdm import tqdm
-from scipy.misc import imread
+from scipy.misc import imread, imsave
 from skimage.transform import resize, rescale
 from skimage.morphology import remove_small_objects, remove_small_holes, label
 
@@ -50,6 +51,11 @@ class DeployModel:
         self.batch_size = batch_size
         self.image_size = image_size
         self.deploy_mode = deploy_mode
+        # check deploy dirs
+        for d in glob.glob('data/*_image'):
+            deploy_dir = self._make_deploy_dir(d)
+            if not os.path.exists(deploy_dir):
+                os.makedirs(deploy_dir)
 
     @staticmethod
     def _post_process(im, mask):
@@ -60,12 +66,57 @@ class DeployModel:
         bw = remove_small_holes(bw, min_size=4096, connectivity=2)
         return bw.astype(np.uint8)
 
+    def _make_deploy_dir(self, p):
+        """ 'data/rf_base_image/' ==> 'deploy/[model_name]/rf_base_image/'
+        Argument:
+            p: original path
+        """
+        p_list = p.replace('data', 'deploy').split('/')
+        p_list.insert(1, self.model_name)
+        return '/'.join(p_list)
+
+    def plot_statistic(self):
+        res = np.load('results/{}/results_dict.npy'.format(self.model_name)).item()
+        res = {k: v[v > 0] for k, v in res.items()}
+        X = range(len(res['train_acc']))
+
+        titles = ['Dice Overlap', 'Accuracy', 'Loss']
+        keys = ['dice_overlap', 'acc', 'loss']
+        for k, title in list(zip(keys, titles)):
+            vis.line(X=np.column_stack((X, X)),
+                     Y=np.column_stack((res['train_' + k], res['val_' + k])),
+                     opts=dict(legend=['train', 'val'], title=title))
+
+    def plot_separate_area(self, mark_label=False):
+        all_area = np.load('deploy/' + self.model_name + '_areas.npy').item()
+        nested_all_dict = {c.split('_')[1]: slice_dict(all_area, c) for c in glob.glob('data/*_image')}
+
+        if mark_label:
+            label_area = np.load('deploy/label_areas.npy').item()
+            nested_label_dict = {c.split('_')[1]: slice_dict(label_area, c) for c in glob.glob('data/*_image')}
+
+        for cls, cls_dict in nested_all_dict.items():
+            idx, area = [np.array(e).tolist() for e in zip(*sorted(cls_dict.items()))]
+
+            # Plot
+            win = cls
+            data = [{'x'   : idx, 'y': area,
+                     'type': 'line', 'name': 'infer', 'mode': "lines"}]
+            layout = {'title': cls, 'xaxis': {'title': 'index'}, 'yaxis': {'title': 'area'}}
+
+            if mark_label:
+                label_idx, label_area = [np.array(e).tolist() for e in zip(*sorted(nested_label_dict[cls].items()))]
+                data.append({'x'   : label_idx, 'y': label_area,
+                             'type': 'scatter', 'name': 'train', 'mode': 'markers+lines'})
+
+            vis._send({'data': data, 'win': win, 'layout': layout})
+
     def deploy(self):
         best_path = 'checkpoints/{}/{}_best.pth'.format(self.model_name, self.model_name)
         best_model = torch.load(best_path)
         print('===> Loading model from {}...'.format(best_path))
 
-        self.plot_statistic(self.model_name)
+        self.plot_statistic()
         print('===> Look at statistics!')
 
         self.model.load_state_dict(best_model)
@@ -88,45 +139,15 @@ class DeployModel:
                 path = path_batch[j]
                 im = imread(path, mode='L')
                 mask = self._post_process(im, mask)
+
+                # save image and areas in `model_name` subdir
+                imsave(self._make_deploy_dir(path), blend(im, mask))
                 areas[path] = np.sum(mask)
 
-            np.save('deploy/' + self.model_name + '_areas.npy', areas)
-
-    def plot_statistic(self):
-        res = np.load('results/{}/results_dict.npy'.format(self.model_name)).item()
-        res = {k: v[v > 0] for k, v in res.items()}
-        X = range(len(res['train_acc']))
-
-        titles = ['Dice Overlap', 'Accuracy', 'Loss']
-        keys = ['dice_overlap', 'acc', 'loss']
-        for k, title in list(zip(keys, titles)):
-            vis.line(X=np.column_stack((X, X)),
-                     Y=np.column_stack((res['train_' + k], res['val_' + k])),
-                     opts=dict(legend=['train', 'val'], title=title))
-
-    def plot_seperate_area(self, mark_label=False):
-        all_area = np.load('deploy/' + self.model_name + '_areas.npy').item()
-        nested_all_dict = {c.split('_')[1]: slice_dict(all_area, c) for c in glob.glob('data/*_image')}
-
-        if mark_label:
-            label_area = np.load('deploy/label_areas.npy').item()
-            nested_label_dict = {c.split('_')[1]: slice_dict(label_area, c) for c in glob.glob('data/*_image')}
-
-        for cls, cls_dict in nested_all_dict.items():
-            idx, area = [np.array(e).tolist() for e in zip(*sorted(cls_dict.items()))]
-
-            # Plot
-            win = cls
-            data = [{'x': idx, 'y': area, 'mode': "lines", 'name': 'infer', 'type': 'line'}]
-            layout = {'title': cls, 'xaxis': {'title': 'index'}, 'yaxis': {'title': 'area'}}
-
-            if mark_label:
-                label_idx, label_area = [np.array(e).tolist() for e in zip(*sorted(nested_label_dict[cls].items()))]
-                data.append({'x': label_idx, 'y': label_area, 'type': 'scatter', 'mode': 'markers'})
-
-            vis._send({'data': data, 'win': win, 'layout': layout})
+        np.save('deploy/' + self.model_name + '_areas.npy', areas)
 
 
 if __name__ == '__main__':
-    dm = DeployModel()
-    dm.plot_seperate_area(mark_label=True)
+    dm = DeployModel(model=UNetVanilla(), model_name='UNetVanilla', device_id=1)  # UNetAtrous / UNetVanilla
+    dm.deploy()
+    dm.plot_separate_area(mark_label=True)

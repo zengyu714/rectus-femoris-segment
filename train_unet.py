@@ -10,7 +10,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
-from unet import UNetAtrous, UNetVanilla
+from unet import UNetAtrous, UNetVanilla, DeepAtrous, FullAtrous
 from inputs import RectusFemorisDataset
 
 from bluntools.easy_visdom import EasyVisdom
@@ -33,10 +33,11 @@ class Configuration:
         self.cuda = torch.cuda.is_available()
         self.cuda_device = cuda_device
 
-        self.batch_size = 24
-        self.epochs = 10
+        self.batch_size = 16
+        self.epochs = 20
         self.augment_size = 100
         self.loss_size = 1
+        self.loss_func = 'NLLLoss(conf.class_weight)(outputs, targets) + DiceLoss()(preds, trues)'
         self.learning_rate = 1e-4
         self.seed = 714
         self.threads = 4
@@ -73,11 +74,25 @@ def main():
     # --------------------------------------------------------------------------------------------------------
     if args.architecture == 0:
         conf.prefix = 'UNetAtrous'
-        conf.batch_size = 8
         model = UNetAtrous()
     elif args.architecture == 1:
         conf.prefix = 'UNetVanilla'
         model = UNetVanilla()
+    elif args.architecture == 2:
+        conf.prefix = 'DeepAtrous'
+        model = DeepAtrous()
+    elif args.architecture == 3:
+        conf.prefix = 'FullAtrous'
+        model = FullAtrous()
+
+    elif args.architecture == 4:
+        conf.prefix = 'UNetAtrous_NLL'
+        conf.loss_func = 'DiceLoss()(probs, trues)'
+        model = UNetAtrous()
+    elif args.architecture == 5:
+        conf.prefix = 'UNetAtrous_Dice'
+        conf.loss_func = 'NLLLoss(conf.class_weight)(outputs, targets)'
+        model = UNetAtrous()
 
     conf.generate_dirs()
 
@@ -115,6 +130,7 @@ def main():
     # Loss
     # ----------------------------------------------------------------------------------------------------
     class_weight = avg_class_weight(test_data_loader).cuda()
+    conf.class_weight = class_weight
     print('---> Rescaled class weights: {}'.format(class_weight.cpu().numpy().T))
 
     # Visdom
@@ -137,9 +153,8 @@ def main():
             image = Variable(image).float().cuda()
 
             outputs, targets = model(image), multi_size(label, size=conf.loss_size)  # 2D cuda Variable
-            preds, trues = active_flatten(outputs, targets)  # 1D
-
-            loss = NLLLoss(class_weight)(outputs, targets) + DiceLoss()(preds, trues)
+            preds, trues, probs = active_flatten(outputs, targets)  # 1D
+            loss = eval(conf.loss_func)
 
             pred, true = preds[0], trues[0]  # original size prediction
             accuracy, overlap = get_statistic(pred, true)
@@ -172,8 +187,8 @@ def main():
             image = Variable(image, volatile=True).float().cuda()
 
             outputs, targets = model(image), multi_size(label, size=conf.loss_size)  # 2D cuda Variable
-            preds, trues = active_flatten(outputs, targets)  # 1D
-            loss = NLLLoss(class_weight)(outputs, targets) + DiceLoss()(preds, trues)
+            preds, trues, probs = active_flatten(outputs, targets)  # 1D
+            loss = eval(conf.loss_func)
 
             pred, true = preds[0], trues[0]  # original size prediction
             accuracy, overlap = get_statistic(pred, true)

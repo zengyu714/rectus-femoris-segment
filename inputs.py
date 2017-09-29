@@ -49,12 +49,12 @@ def random_affine(image, label,
 class RectusFemorisDataset(data.Dataset):
     def __init__(self, mode='train', image_size=(256, 256)):
         """Assume dataset is in directory '.data/rf_SX_image/' and '.data/rf_SX_label',
-        X ∈ {base, 0, 1, 2, 13, 15, 16, 18, 19, 24}
+        X ∈ {base, 0, 1, 2, 13, 15, 16, 18, 24}
         """
         super(RectusFemorisDataset, self).__init__()
         self.image_size = image_size
 
-        self.data_path = glob.glob('data/*_label/*.bmp')  # 270 training images
+        self.data_path = glob.glob('data/*_label/*.bmp')  # 245 training images
         np.random.shuffle(self.data_path)
 
         split = int(len(self.data_path) * 0.1)
@@ -92,9 +92,9 @@ class DeployRectusFemoris(data.Dataset):
         Arguments:
             image_size: same with training input size
             mode:
-                total: 2540 images
-                train: 270  images
-                infer: 2270 images
+                total: 2300 images
+                train: 220  images
+                infer: 2080 images
         """
         self.mode = mode
         self.image_size = image_size
