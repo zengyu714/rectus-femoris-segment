@@ -1,7 +1,9 @@
 import os
 import glob
 import visdom
+import imageio
 import numpy as np
+
 import torch
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
@@ -11,7 +13,7 @@ from scipy.misc import imread, imsave
 from skimage.transform import resize, rescale
 from skimage.morphology import remove_small_objects, remove_small_holes, label
 
-from unet import UNetVanilla, UNetAtrous
+from unet import UNetVanilla, UNetAtrous, UNetShortCut
 from inputs import DeployRectusFemoris
 
 vis = visdom.Visdom()
@@ -34,10 +36,11 @@ def save_label_area():
     np.save('deploy/label_areas.npy', lable_dict)
 
 
-def slice_dict(d, s):
-    def _digit(_s):
-        return int(''.join(list(filter(str.isdigit, _s))))
+def _digit(s):
+    return int(''.join(list(filter(str.isdigit, s))))
 
+
+def slice_dict(d, s):
     return {_digit(k.split('/')[-1]): v for k, v in d.items() if k.startswith(s)}
 
 
@@ -56,6 +59,10 @@ class DeployModel:
             deploy_dir = self._make_deploy_dir(d)
             if not os.path.exists(deploy_dir):
                 os.makedirs(deploy_dir)
+        # check Gif dirs
+        gif_dir = 'deploy/' + model_name + '/Gif'
+        if not os.path.exists(gif_dir):
+            os.makedirs(gif_dir)
 
     @staticmethod
     def _post_process(im, mask):
@@ -111,6 +118,14 @@ class DeployModel:
 
             vis._send({'data': data, 'win': win, 'layout': layout})
 
+    def generate_gif(self):
+        for subdir in tqdm(glob.glob('deploy/' + self.model_name + '/*_image')):
+            cls = subdir.split('_')[1]
+            with imageio.get_writer(os.path.join('deploy', self.model_name, 'Gif', cls) + '.gif', mode='I') as writer:
+                for im_path in sorted(glob.glob(subdir + '/*'), key=_digit):
+                    image = imread(im_path)
+                    writer.append_data(image)
+
     def deploy(self):
         best_path = 'checkpoints/{}/{}_best.pth'.format(self.model_name, self.model_name)
         best_model = torch.load(best_path)
@@ -148,6 +163,7 @@ class DeployModel:
 
 
 if __name__ == '__main__':
-    dm = DeployModel(model=UNetVanilla(), model_name='UNetVanilla', device_id=1)  # UNetAtrous / UNetVanilla
-    dm.deploy()
-    dm.plot_separate_area(mark_label=True)
+    dm = DeployModel(model=UNetVanilla(), model_name='UNetVanilla', device_id=3)  # UNetAtrous / UNetVanilla
+    # dm.deploy()
+    # dm.plot_separate_area(mark_label=True)
+    dm.generate_gif()

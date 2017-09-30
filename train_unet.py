@@ -10,7 +10,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
-from unet import UNetAtrous, UNetVanilla, DeepAtrous, FullAtrous
+from unet import UNetAtrous, UNetVanilla, UNetShortCut, UNetMulLoss
 from inputs import RectusFemorisDataset
 
 from bluntools.easy_visdom import EasyVisdom
@@ -37,7 +37,7 @@ class Configuration:
         self.epochs = 20
         self.augment_size = 100
         self.loss_size = 1
-        self.loss_func = 'NLLLoss(conf.class_weight)(outputs, targets) + DiceLoss()(preds, trues)'
+        self.loss_func = 'NLLLoss(conf.class_weight)(outputs, targets) + DiceLoss()(probs, trues)'
         self.learning_rate = 1e-4
         self.seed = 714
         self.threads = 4
@@ -73,26 +73,19 @@ def main():
     # Set models
     # --------------------------------------------------------------------------------------------------------
     if args.architecture == 0:
-        conf.prefix = 'UNetAtrous'
-        model = UNetAtrous()
+        conf.prefix = 'UNetShortCut'
+        model = UNetShortCut()
     elif args.architecture == 1:
-        conf.prefix = 'UNetVanilla'
-        model = UNetVanilla()
-    elif args.architecture == 2:
-        conf.prefix = 'DeepAtrous'
-        model = DeepAtrous()
-    elif args.architecture == 3:
-        conf.prefix = 'FullAtrous'
-        model = FullAtrous()
-
-    elif args.architecture == 4:
-        conf.prefix = 'UNetAtrous_NLL'
-        conf.loss_func = 'DiceLoss()(probs, trues)'
-        model = UNetAtrous()
-    elif args.architecture == 5:
-        conf.prefix = 'UNetAtrous_Dice'
+        conf.prefix = 'UNetShortCut_NLL'
         conf.loss_func = 'NLLLoss(conf.class_weight)(outputs, targets)'
         model = UNetAtrous()
+    elif args.architecture == 2:
+        conf.prefix = 'UNetShortCut_Dice'
+        conf.loss_func = 'DiceLoss()(probs, trues)'
+        model = UNetAtrous()
+    elif args.architecture == 3:
+        conf.prefix = 'UNetVanilla'
+        model = UNetVanilla()
 
     conf.generate_dirs()
 
@@ -132,6 +125,7 @@ def main():
     class_weight = avg_class_weight(test_data_loader).cuda()
     conf.class_weight = class_weight
     print('---> Rescaled class weights: {}'.format(class_weight.cpu().numpy().T))
+    print('---> Loss function: {}'.format(conf.loss_func))
 
     # Visdom
     # ----------------------------------------------------------------------------------------------------
@@ -154,6 +148,7 @@ def main():
 
             outputs, targets = model(image), multi_size(label, size=conf.loss_size)  # 2D cuda Variable
             preds, trues, probs = active_flatten(outputs, targets)  # 1D
+
             loss = eval(conf.loss_func)
 
             pred, true = preds[0], trues[0]  # original size prediction
@@ -243,8 +238,8 @@ def main():
             avg_time = elapsed_time / conf.show_interval
             est_time = divmod((total_i - i) * avg_time, 60)
             sum_time = divmod(total_time, 60)
-            print('Average consumed time: {:.3f} s/epoch\n'  
-                  'Estimated remaining time: {:.0f}m {:.0f}s   Total time: {:.0f}m {:.0f}s\n'  
+            print('Average consumed time: {:.3f} s/epoch\n'
+                  'Estimated remaining time: {:.0f}m {:.0f}s   Total time: {:.0f}m {:.0f}s\n'
                   '[start from: {} -- current time: {}]'
                   .format(avg_time, *est_time, *sum_time, prog_start_time, datetime.datetime.now()))
             elapsed_time = 0.0

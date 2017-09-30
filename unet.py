@@ -1,52 +1,6 @@
 from bluntools.layers import *
 
 
-class UNetAtrous(nn.Module):
-    def __init__(self):
-        super(UNetAtrous, self).__init__()
-        self.in_fit = nn.Sequential(ConvBNReLU(1, 16), ConvBNReLU(16, 16))
-
-        self.lhs_1x = DownBlock(16, 16)
-        self.lhs_2x = DownBlock(16, 32)
-        self.lhs_4x = DownBlock(32, 64)
-        self.lhs_8x = DownBlock(64, 128)
-        self.lhs_16x = DownBlock(128, 256)
-
-        # 16x
-        self.atrous_1 = AtrousBlock(128, 128)
-        self.atrous_2 = AtrousBlock(128, 128)
-        self.atrous_3 = AtrousBlock(128, 128)
-        self.atrous_4 = AtrousBlock(128, 128)
-
-        self.rhs_16x = UpBlock(128, 128)
-        self.rhs_8x = UpBlock(128, 64)
-        self.rhs_4x = UpBlock(64, 32)
-        self.rhs_2x = UpBlock(32, 16)
-        self.rhs_1x = UpBlock(16, 16)
-
-        self.classify = nn.Conv2d(16, 2, kernel_size=1)
-
-    def forward(self, x):
-        lhs_1x, pool = self.lhs_1x(self.in_fit(x))
-        lhs_2x, pool = self.lhs_2x(pool)
-        lhs_4x, pool = self.lhs_4x(pool)
-        lhs_8x, pool = self.lhs_8x(pool)
-        lhs_16x, _ = self.lhs_16x(pool)
-
-        atrous_1 = self.atrous_1(lhs_16x)
-        atrous_2 = self.atrous_2(atrous_1)
-        atrous_3 = self.atrous_3(atrous_2)
-        atrous_4 = self.atrous_4(atrous_3)
-
-        _, up = self.rhs_16x(atrous_4, pool)
-        _, up = self.rhs_8x(lhs_8x, pool)
-        _, up = self.rhs_4x(lhs_4x, up)
-        _, up = self.rhs_2x(lhs_2x, up)
-        rhs_1x, _ = self.rhs_1x(lhs_1x, up)
-
-        return self.classify(rhs_1x)
-
-
 class UNetVanilla(nn.Module):
     """Input: [batch_size, 3, 256, 256]"""
 
@@ -90,9 +44,92 @@ class UNetVanilla(nn.Module):
         return self.classify(rhs_1x)
 
 
-class FullAtrous(nn.Module):
+class UNetShortCut(nn.Module):
+    """Input: [batch_size, 3, 256, 256]"""
+
     def __init__(self):
-        super(FullAtrous, self).__init__()
+        super(UNetShortCut, self).__init__()
+        self.in_fit = nn.Sequential(ConvBNReLU(1, 16), ConvBNReLU(16, 16))
+
+        self.lhs_1x = DownBlock(16, 32)
+        self.lhs_2x = DownBlock(32, 64)
+        self.lhs_4x = DownBlock(64, 128)
+        self.lhs_8x = DownBlock(128, 256)
+        self.lhs_16x = DownBlock(256, 256)
+
+        self.rhs_16x = UpBlock(256, 256)
+        self.rhs_8x = UpBlock(256, 128)
+        self.rhs_4x = UpBlock(128, 64)
+        self.rhs_2x = UpBlock(64, 32)
+        self.rhs_1x = UpBlock(32, 16)
+
+        self.classify = nn.Conv2d(32, 2, kernel_size=1)
+
+    def forward(self, x):
+        lhs_1x, pool = self.lhs_1x(self.in_fit(x))
+        lhs_2x, pool = self.lhs_2x(pool)
+        lhs_4x, pool = self.lhs_4x(pool)
+        lhs_8x, pool = self.lhs_8x(pool)
+        lhs_16x, _ = self.lhs_16x(pool)
+
+        _, up = self.rhs_16x(lhs_16x, pool)
+        _, up = self.rhs_8x(lhs_8x, up)
+        _, up = self.rhs_4x(lhs_4x, up)
+        _, up = self.rhs_2x(lhs_2x, up)
+        rhs_1x, _ = self.rhs_1x(lhs_1x, up)
+
+        return self.classify(rhs_1x)
+
+
+# Reject
+class UNetMulLoss(nn.Module):
+    """Input: [batch_size, 3, 256, 256]"""
+
+    def __init__(self):
+        super(UNetMulLoss, self).__init__()
+        self.in_fit = nn.Sequential(ConvBNReLU(1, 16), ConvBNReLU(16, 16))
+
+        self.lhs_1x = DownBlock(16, 32)
+        self.lhs_2x = DownBlock(32, 64)
+        self.lhs_4x = DownBlock(64, 128)
+        self.lhs_8x = DownBlock(128, 256)
+        self.lhs_16x = DownBlock(256, 256)
+
+        self.rhs_16x = UpBlock(256, 256)
+        self.rhs_8x = UpBlock(256, 128)
+        self.rhs_4x = UpBlock(128, 64)
+        self.rhs_2x = UpBlock(64, 32)
+        self.rhs_1x = UpBlock(32, 16)
+
+        self.classify_16x = nn.Conv2d(256, 2, kernel_size=1)
+        self.classify_8x = nn.Conv2d(256, 2, kernel_size=1)
+        self.classify_4x = nn.Conv2d(128, 2, kernel_size=1)
+        self.classify_2x = nn.Conv2d(64, 2, kernel_size=1)
+        self.classify_1x = nn.Conv2d(32, 2, kernel_size=1)
+
+    def forward(self, x):
+        lhs_1x, pool = self.lhs_1x(self.in_fit(x))
+        lhs_2x, pool = self.lhs_2x(pool)
+        lhs_4x, pool = self.lhs_4x(pool)
+        lhs_8x, pool = self.lhs_8x(pool)
+        lhs_16x, _ = self.lhs_16x(pool)
+
+        rhs_16x, up = self.rhs_16x(lhs_16x, pool)
+        rhs_8x, up = self.rhs_8x(lhs_8x, up)
+        rhs_4x, up = self.rhs_4x(lhs_4x, up)
+        rhs_2x, up = self.rhs_2x(lhs_2x, up)
+        rhs_1x, _ = self.rhs_1x(lhs_1x, up)
+
+        return (self.classify_1x(rhs_1x),
+                self.classify_2x(rhs_2x),
+                self.classify_4x(rhs_4x),
+                self.classify_8x(rhs_8x),
+                self.classify_16x(rhs_16x))
+
+
+class UAMulLoss(nn.Module):
+    def __init__(self):
+        super(UAMulLoss, self).__init__()
         self.in_fit = nn.Sequential(ConvBNReLU(1, 16), ConvBNReLU(16, 16))
 
         self.lhs_1x = DownAtrous(16, 16)
@@ -113,7 +150,11 @@ class FullAtrous(nn.Module):
         self.rhs_2x = UpBlock(32, 16)
         self.rhs_1x = UpBlock(16, 16)
 
-        self.classify = nn.Conv2d(16, 2, kernel_size=1)
+        self.classify_16x = nn.Conv2d(128, 2, kernel_size=1)
+        self.classify_8x = nn.Conv2d(128, 2, kernel_size=1)
+        self.classify_4x = nn.Conv2d(64, 2, kernel_size=1)
+        self.classify_2x = nn.Conv2d(32, 2, kernel_size=1)
+        self.classify_1x = nn.Conv2d(16, 2, kernel_size=1)
 
     def forward(self, x):
         lhs_1x, pool = self.lhs_1x(self.in_fit(x))
@@ -123,35 +164,33 @@ class FullAtrous(nn.Module):
         lhs_16x, _ = self.lhs_16x(pool)
 
         atrous_1 = self.atrous_1(lhs_16x)
-        atrous_2 = self.atrous_2(atrous_1) + lhs_16x
+        atrous_2 = self.atrous_2(atrous_1)
         atrous_3 = self.atrous_3(atrous_2)
-        atrous_4 = self.atrous_4(atrous_3) + atrous_2
+        atrous_4 = self.atrous_4(atrous_3)
 
-        _, up = self.rhs_16x(atrous_4, pool)
-        _, up = self.rhs_8x(lhs_8x, pool)
-        _, up = self.rhs_4x(lhs_4x, up)
-        _, up = self.rhs_2x(lhs_2x, up)
+        rhs_16x, up = self.rhs_16x(atrous_4, pool)
+        rhs_8x, up = self.rhs_8x(lhs_8x, up)
+        rhs_4x, up = self.rhs_4x(lhs_4x, up)
+        rhs_2x, up = self.rhs_2x(lhs_2x, up)
         rhs_1x, _ = self.rhs_1x(lhs_1x, up)
 
-        return self.classify(rhs_1x)
+        return (self.classify_1x(rhs_1x),
+                self.classify_2x(rhs_2x),
+                self.classify_4x(rhs_4x),
+                self.classify_8x(rhs_8x),
+                self.classify_16x(rhs_16x))
 
 
-class DeepAtrous(nn.Module):
+class UNetAtrous(nn.Module):
     def __init__(self):
-        super(DeepAtrous, self).__init__()
+        super(UNetAtrous, self).__init__()
         self.in_fit = nn.Sequential(ConvBNReLU(1, 16), ConvBNReLU(16, 16))
 
-        self.lhs_1x = DownBlock(16, 32)
-        self.lhs_2x = DownBlock(32, 64)
-        self.lhs_4x = DownBlock(64, 128)
-        self.lhs_8x = DownBlock(128, 256)
-        self.lhs_16x = DownBlock(256, 256)
-
-        # 16x
-        self.atrous_1 = AtrousBlock(256, 256)
-        self.atrous_2 = AtrousBlock(256, 256)
-        self.atrous_3 = AtrousBlock(256, 256)
-        self.atrous_4 = AtrousBlock(256, 256)
+        self.lhs_1x = DownAtrous(16, 32)
+        self.lhs_2x = DownAtrous(32, 64)
+        self.lhs_4x = DownAtrous(64, 128)
+        self.lhs_8x = DownAtrous(128, 256)
+        self.lhs_16x = DownAtrous(256, 256)
 
         self.rhs_16x = UpBlock(256, 256)
         self.rhs_8x = UpBlock(256, 128)
@@ -168,12 +207,7 @@ class DeepAtrous(nn.Module):
         lhs_8x, pool = self.lhs_8x(pool)
         lhs_16x, _ = self.lhs_16x(pool)
 
-        atrous_1 = self.atrous_1(lhs_16x)
-        atrous_2 = self.atrous_2(atrous_1) + lhs_16x
-        atrous_3 = self.atrous_3(atrous_2)
-        atrous_4 = self.atrous_4(atrous_3) + atrous_2
-
-        _, up = self.rhs_16x(atrous_4, pool)
+        _, up = self.rhs_16x(lhs_16x, pool)
         _, up = self.rhs_8x(lhs_8x, pool)
         _, up = self.rhs_4x(lhs_4x, up)
         _, up = self.rhs_2x(lhs_2x, up)
