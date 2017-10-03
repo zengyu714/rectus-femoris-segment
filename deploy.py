@@ -3,6 +3,7 @@ import glob
 import visdom
 import imageio
 import numpy as np
+import pandas as pd
 
 import torch
 from torch.autograd import Variable
@@ -17,6 +18,14 @@ from unet import UNetVanilla, UNetAtrous, UNetShortCut
 from inputs import DeployRectusFemoris
 
 vis = visdom.Visdom()
+
+
+def _digit(s):
+    return int(''.join(list(filter(str.isdigit, s))))
+
+
+def slice_dict(d, s):
+    return {_digit(k.split('/')[-1]): v for k, v in d.items() if k.startswith(s)}
 
 
 def blend(image, label, alpha=0.5):
@@ -36,12 +45,12 @@ def save_label_area():
     np.save('deploy/label_areas.npy', lable_dict)
 
 
-def _digit(s):
-    return int(''.join(list(filter(str.isdigit, s))))
-
-
-def slice_dict(d, s):
-    return {_digit(k.split('/')[-1]): v for k, v in d.items() if k.startswith(s)}
+def stat_to_csv(subdir_pattern='results/UNetShortCut*'):
+    subdirs = glob.glob(subdir_pattern)
+    for d in subdirs:
+        result = np.load(os.path.join(d, 'results_dict.npy')).item()
+        df = pd.DataFrame.from_dict(result)
+        df.to_csv(d.replace('results', 'deploy') + '.csv')
 
 
 class DeployModel:
@@ -90,8 +99,11 @@ class DeployModel:
         titles = ['Dice Overlap', 'Accuracy', 'Loss']
         keys = ['dice_overlap', 'acc', 'loss']
         for k, title in list(zip(keys, titles)):
-            vis.line(X=np.column_stack((X, X)),
-                     Y=np.column_stack((res['train_' + k], res['val_' + k])),
+            # In case concatenation axis do not match exactly when accidentally restart a new training
+            y1, y2 = res['train_' + k], res['val_' + k]
+            m_len = min(len(y1), len(y2))
+            vis.line(X=np.column_stack((X[:m_len], X[:m_len])),
+                     Y=np.column_stack((y1[:m_len], y2[:m_len])),
                      opts=dict(legend=['train', 'val'], title=title))
 
     def plot_separate_area(self, mark_label=False):
@@ -120,7 +132,7 @@ class DeployModel:
 
     def generate_gif(self):
         for subdir in tqdm(glob.glob('deploy/' + self.model_name + '/*_image')):
-            cls = subdir.split('_')[1]
+            cls = subdir.split('_')[-2]
             with imageio.get_writer(os.path.join('deploy', self.model_name, 'Gif', cls) + '.gif', mode='I') as writer:
                 for im_path in sorted(glob.glob(subdir + '/*'), key=_digit):
                     image = imread(im_path)
@@ -163,7 +175,10 @@ class DeployModel:
 
 
 if __name__ == '__main__':
-    dm = DeployModel(model=UNetVanilla(), model_name='UNetVanilla', device_id=3)  # UNetAtrous / UNetVanilla
+    # dm = DeployModel(model=UNetVanilla(), model_name='UNetVanilla_Dice', device_id=3)
+    dm = DeployModel(model=UNetShortCut(), model_name='UNetShortCut_Dice', device_id=2)
+
     # dm.deploy()
     # dm.plot_separate_area(mark_label=True)
     dm.generate_gif()
+    # dm.stat_to_csv()

@@ -10,7 +10,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
-from unet import UNetAtrous, UNetVanilla, UNetShortCut, UNetMulLoss
+from unet import UNetAtrous, UNetVanilla, UNetShortCut, UNetMulLoss, DiceLoss_Linear
 from inputs import RectusFemorisDataset
 
 from bluntools.easy_visdom import EasyVisdom
@@ -37,7 +37,7 @@ class Configuration:
         self.epochs = 20
         self.augment_size = 100
         self.loss_size = 1
-        self.loss_func = 'NLLLoss(conf.class_weight)(outputs, targets) + DiceLoss()(probs, trues)'
+        self.loss_func = 'DiceLoss()(probs, trues)'
         self.learning_rate = 1e-4
         self.seed = 714
         self.threads = 4
@@ -73,19 +73,26 @@ def main():
     # Set models
     # --------------------------------------------------------------------------------------------------------
     if args.architecture == 0:
-        conf.prefix = 'UNetShortCut'
+        conf.prefix = 'UNetShortCut_Mix'
+        conf.loss_func = 'NLLLoss(conf.class_weight)(outputs, targets) + DiceLoss()(probs, trues)'
         model = UNetShortCut()
     elif args.architecture == 1:
         conf.prefix = 'UNetShortCut_NLL'
         conf.loss_func = 'NLLLoss(conf.class_weight)(outputs, targets)'
-        model = UNetAtrous()
+        model = UNetShortCut()
     elif args.architecture == 2:
         conf.prefix = 'UNetShortCut_Dice'
-        conf.loss_func = 'DiceLoss()(probs, trues)'
-        model = UNetAtrous()
+        model = UNetShortCut()
     elif args.architecture == 3:
-        conf.prefix = 'UNetVanilla'
+        conf.prefix = 'UNetShortCut_Dice_Linear'
+        conf.loss_func = 'DiceLoss_Linear()(probs, trues)'
+        model = UNetShortCut()
+    elif args.architecture == 4:
+        conf.prefix = 'UNetVanilla_Dice'
         model = UNetVanilla()
+    elif args.architecture == 5:
+        conf.prefix = 'UNetAtrous_Dice'
+        model = UNetAtrous()
 
     conf.generate_dirs()
 

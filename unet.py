@@ -214,3 +214,20 @@ class UNetAtrous(nn.Module):
         rhs_1x, _ = self.rhs_1x(lhs_1x, up)
 
         return self.classify(rhs_1x)
+
+
+# helper function
+class DiceLoss_Linear(nn.Module):
+    def __init__(self):
+        super(DiceLoss_Linear, self).__init__()
+
+    def forward(self, probs, trues):
+        loss = []
+        smooth = 1.  # (dim = )0 for Tensor result
+        for i, prob in enumerate(probs):
+            true = trues[i]
+            intersection = torch.sum(prob * true, 0) + smooth
+            union = torch.sum(prob, 0) + torch.sum(true, 0) + smooth
+            dice = 2.0 * intersection / union
+            loss.append(1 - dice)
+        return sum(loss)
