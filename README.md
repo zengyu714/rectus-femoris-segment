@@ -2,13 +2,18 @@
 
 # Demo
 ## Input
-+ image ![image](http://wx2.sinaimg.cn/large/9f1c5669ly1fk5ho67fg9j217c0780u4.jpg)
++ image
+![image](demo/image.png "image")
 
 + label
-![label](http://wx3.sinaimg.cn/large/9f1c5669ly1fk5hya552mj217c078wey.jpg)
+![label](demo/label.png "label")
 
 + prediction
-![pred](http://wx2.sinaimg.cn/large/9f1c5669ly1fk5htg8efyj217c0783yo.jpg)
+![predition](demo/pred.png "predition")
 
 ## Look
-![gif](http://wx3.sinaimg.cn/mw690/9f1c5669ly1fk5i090dkog20fb0bfqve.gif)
++ dataset 1 <br>
+<img src="demo/S1.gif?raw=true" width="300px">
+
++ dataset 2 <br>
+<img src="demo/S15.gif?raw=true" width="300px">
